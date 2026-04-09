@@ -854,7 +854,23 @@ func createHeadlampHandler(ctx context.Context, config *HeadlampConfig) http.Han
 			return
 		}
 
-		idToken, err := oauthConfig.Verifier.Verify(oauthConfig.Ctx, rawUserToken)
+		// When using access_token, we still need to verify and extract claims from id_token.
+		// access_token is an opaque string (not JWT) and cannot be verified by OIDC verifier.
+		// id_token is always present in Google's response alongside access_token.
+		verifyToken := rawUserToken
+		if config.OidcUseAccessToken {
+			rawIDToken, ok := oauth2Token.Extra("id_token").(string)
+			if !ok {
+				logger.Log(logger.LevelError, nil, nil, "no id_token field in oauth2 token")
+				http.Error(w, "No id_token field in oauth2 token.", http.StatusInternalServerError)
+
+				return
+			}
+
+			verifyToken = rawIDToken
+		}
+
+		idToken, err := oauthConfig.Verifier.Verify(oauthConfig.Ctx, verifyToken)
 		if err != nil {
 			logger.Log(logger.LevelError, nil, err, "failed to verify ID Token")
 			http.Error(w, "Failed to verify ID Token: "+err.Error(), http.StatusInternalServerError)
